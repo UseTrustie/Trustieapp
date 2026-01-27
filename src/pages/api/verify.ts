@@ -27,33 +27,37 @@ interface VerificationResult {
 }
 
 async function extractClaims(content: string, apiKey: string) {
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      messages: [{
-        role: 'user',
-        content: `Extract factual claims from this text. Return JSON array only:
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: `Extract factual claims from this text. Return JSON array only:
 [{"claim": "exact claim", "type": "fact", "searchQuery": "search query"}]
 
 Text: "${content}"
 
 If no factual claims, return: []`
-      }]
+        }]
+      })
     })
-  })
-  const data = await response.json()
-  const text = data.content[0].text.trim()
-  try {
+    const data = await response.json()
+    if (!data.content || !data.content[0] || !data.content[0].text) {
+      return []
+    }
+    const text = data.content[0].text.trim()
     const match = text.match(/\[[\s\S]*\]/)
     return match ? JSON.parse(match[0]) : []
-  } catch {
+  } catch (err) {
+    console.error('Extract claims error:', err)
     return []
   }
 }
@@ -79,13 +83,16 @@ async function searchSources(query: string, apiKey: string): Promise<SourceResul
       })
     })
     const data = await response.json()
+    if (!data.content) return []
     let text = ''
     for (const block of data.content) {
       if (block.type === 'text') text += block.text
     }
+    if (!text) return []
     const match = text.match(/\[[\s\S]*\]/)
     return match ? JSON.parse(match[0]).slice(0, 3) : []
-  } catch {
+  } catch (err) {
+    console.error('Search error:', err)
     return []
   }
 }
@@ -94,29 +101,33 @@ async function evaluateClaim(claim: string, sources: SourceResult[], apiKey: str
   if (sources.length === 0) {
     return { status: 'unverified', explanation: 'No relevant sources found.' }
   }
-  const sourcesText = sources.map((s, i) => `Source ${i + 1}: ${s.snippet}`).join('\n')
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 500,
-      messages: [{
-        role: 'user',
-        content: `Claim: "${claim}"\n\nSources:\n${sourcesText}\n\nReturn JSON: {"status": "supported|contradicted|unverified", "explanation": "brief reason"}`
-      }]
-    })
-  })
-  const data = await response.json()
-  const text = data.content[0].text.trim()
   try {
+    const sourcesText = sources.map((s, i) => `Source ${i + 1}: ${s.snippet}`).join('\n')
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: `Claim: "${claim}"\n\nSources:\n${sourcesText}\n\nReturn JSON: {"status": "supported|contradicted|unverified", "explanation": "brief reason"}`
+        }]
+      })
+    })
+    const data = await response.json()
+    if (!data.content || !data.content[0] || !data.content[0].text) {
+      return { status: 'unverified', explanation: 'Could not evaluate.' }
+    }
+    const text = data.content[0].text.trim()
     const match = text.match(/\{[\s\S]*\}/)
     return match ? JSON.parse(match[0]) : { status: 'unverified', explanation: 'Could not evaluate.' }
-  } catch {
+  } catch (err) {
+    console.error('Evaluate error:', err)
     return { status: 'unverified', explanation: 'Could not evaluate.' }
   }
 }
@@ -135,7 +146,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   try {
     const claims = await extractClaims(content, apiKey)
-    if (claims.length === 0) {
+    if (!claims || claims.length === 0) {
       return res.status(200).json({
         claims: [],
         summary: { total: 0, supported: 0, contradicted: 0, unverified: 0, opinions: 0 }
@@ -152,10 +163,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       const evaluation = await evaluateClaim(c.claim, sources, apiKey)
       processed.push({
         claim: c.claim,
-        type: c.type,
-        status: evaluation.status,
+        type: c.type || 'fact',
+        status: evaluation.status || 'unverified',
         sources,
-        explanation: evaluation.explanation
+        explanation: evaluation.explanation || 'Could not verify.'
       })
     }
 
@@ -169,6 +180,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     return res.status(200).json({ claims: processed, summary })
   } catch (error: any) {
+    console.error('Handler error:', error)
     return res.status(500).json({ error: error.message || 'Verification failed' })
   }
 }
