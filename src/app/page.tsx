@@ -43,10 +43,10 @@ const POPULAR_AIS = [
 ]
 
 const QUICK_CHECKS = [
-  "Check if this statistic is accurate",
-  "Verify this historical claim",
-  "Is this health advice correct?",
-  "Fact-check this news claim"
+  "Is this true?",
+  "Did this really happen?",
+  "Are these numbers correct?",
+  "Is this real or fake?"
 ]
 
 export default function Home() {
@@ -118,12 +118,12 @@ export default function Home() {
     setIsVerifying(true)
     setError(null)
     setResult(null)
-    setCurrentStep('Analyzing your text...')
+    setCurrentStep('Reading your text...')
 
     try {
-      setTimeout(() => setCurrentStep('Extracting claims...'), 2000)
-      setTimeout(() => setCurrentStep('Searching sources...'), 5000)
-      setTimeout(() => setCurrentStep('Evaluating evidence...'), 10000)
+      setTimeout(() => setCurrentStep('Finding claims...'), 2000)
+      setTimeout(() => setCurrentStep('Searching the web...'), 5000)
+      setTimeout(() => setCurrentStep('Checking sources...'), 10000)
 
       const response = await fetch('/api/verify', {
         method: 'POST',
@@ -141,7 +141,6 @@ export default function Home() {
       if (data.message) setError(data.message)
       fetchRankings()
       
-      // Show email prompt after 3rd use
       const useCount = parseInt(localStorage.getItem('useCount') || '0') + 1
       localStorage.setItem('useCount', String(useCount))
       if (useCount >= 3 && !emailSubmitted && !localStorage.getItem('emailSubmitted')) {
@@ -186,9 +185,9 @@ export default function Home() {
   const getStatusLabel = (status: string) => {
     const base = "px-2 py-0.5 rounded text-xs font-medium uppercase tracking-wide"
     switch (status) {
-      case 'supported': return <span className={`${base} text-emerald-300 bg-emerald-900/50`}>Supported</span>
-      case 'contradicted': return <span className={`${base} text-red-300 bg-red-900/50`}>Contradicted</span>
-      case 'unverified': return <span className={`${base} text-amber-300 bg-amber-900/50`}>Unverified</span>
+      case 'supported': return <span className={`${base} text-emerald-300 bg-emerald-900/50`}>True</span>
+      case 'contradicted': return <span className={`${base} text-red-300 bg-red-900/50`}>False</span>
+      case 'unverified': return <span className={`${base} text-amber-300 bg-amber-900/50`}>Can't Confirm</span>
       case 'opinion': return <span className={`${base} text-blue-300 bg-blue-900/50`}>Opinion</span>
       default: return null
     }
@@ -224,7 +223,7 @@ export default function Home() {
             </div>
             <div>
               <h1 className="text-2xl font-bold">Trustie</h1>
-              <p className={`text-sm ${textMuted}`}>AI Fact Checker</p>
+              <p className={`text-sm ${textMuted}`}>Check if AI is telling the truth</p>
             </div>
           </div>
           <div className="flex items-center gap-4">
@@ -232,7 +231,7 @@ export default function Home() {
               onClick={() => setShowRankings(!showRankings)}
               className={`text-sm ${textMuted} hover:text-blue-400 transition-colors`}
             >
-              AI Rankings
+              🏆 Rankings
             </button>
             <button
               onClick={() => setDarkMode(!darkMode)}
@@ -246,9 +245,9 @@ export default function Home() {
         {/* Tabs */}
         <div className={`flex gap-2 mb-6 p-1 ${bgCard} rounded-lg ${borderColor} border`}>
           {[
-            { id: 'verify', label: '🔍 Verify Claims' },
+            { id: 'verify', label: '🔍 Check Facts' },
             { id: 'feedback', label: '💬 Feedback' },
-            { id: 'about', label: 'ℹ️ About' }
+            { id: 'about', label: '❓ How It Works' }
           ].map(tab => (
             <button
               key={tab.id}
@@ -268,14 +267,16 @@ export default function Home() {
         {activeTab === 'verify' && (
           <main className="space-y-6">
             
-            {/* Intro */}
+            {/* Intro - Simpler language */}
             <div className={`p-4 ${bgCard} rounded-lg ${borderColor} border`}>
-              <p className={textMuted}>
-                Paste any AI-generated text and we'll verify the claims against real sources. 
-                We'll show you what's supported, contradicted, or just opinion — with links to check yourself.
+              <p className={`text-lg ${textMain}`}>
+                🤔 Not sure if ChatGPT or another AI told you the truth?
+              </p>
+              <p className={`${textMuted} mt-2`}>
+                Paste what the AI said below and we'll check if it's true by searching real websites.
               </p>
               <p className={`text-xs ${textMuted} mt-2`}>
-                ⏱️ Typical verification takes 15-30 seconds depending on the number of claims.
+                ⏱️ Takes about 20-40 seconds
               </p>
             </div>
 
@@ -283,10 +284,10 @@ export default function Home() {
             {showRankings && (
               <div className={`p-5 ${bgCard} ${borderColor} border rounded-lg`}>
                 <h2 className="text-sm font-semibold uppercase tracking-wide mb-4 text-blue-400">
-                  AI Reliability Rankings
+                  🏆 Which AI Lies the Least?
                 </h2>
                 {rankings.length === 0 ? (
-                  <p className={textMuted}>No data yet. Be the first to verify an AI output!</p>
+                  <p className={textMuted}>No data yet. Check some AI responses to see rankings!</p>
                 ) : (
                   <div className="space-y-3">
                     {rankings.slice(0, 10).map((ai, index) => (
@@ -303,8 +304,8 @@ export default function Home() {
                             <span className={`text-sm ${textMuted}`}>{ai.checksCount} checks</span>
                           </div>
                           <div className="flex gap-3 mt-1 text-xs">
-                            <span className="text-emerald-400">{ai.supportedRate}% supported</span>
-                            <span className="text-red-400">{ai.contradictedRate}% contradicted</span>
+                            <span className="text-emerald-400">{ai.supportedRate}% true</span>
+                            <span className="text-red-400">{ai.contradictedRate}% false</span>
                           </div>
                         </div>
                       </div>
@@ -314,10 +315,10 @@ export default function Home() {
               </div>
             )}
 
-            {/* AI Source Selector */}
-            <div>
-              <label className={`block text-xs ${textMuted} mb-2 uppercase tracking-widest font-medium`}>
-                Which AI generated this?
+            {/* Step 1: AI Source Selector */}
+            <div className={`p-4 ${bgCard} rounded-lg ${borderColor} border`}>
+              <label className={`block text-sm font-medium mb-3`}>
+                Step 1: Which AI said this?
               </label>
               <div className="flex flex-wrap gap-2">
                 {POPULAR_AIS.map((ai) => (
@@ -327,10 +328,10 @@ export default function Home() {
                       setAiSource(ai)
                       if (ai !== 'Other') setCustomAiSource('')
                     }}
-                    className={`px-3 py-1.5 rounded text-sm transition-all ${
+                    className={`px-4 py-2 rounded-lg text-sm transition-all ${
                       aiSource === ai
                         ? 'bg-blue-600 text-white'
-                        : `${bgCard} ${borderColor} border ${textMuted} hover:border-blue-500`
+                        : `${darkMode ? 'bg-gray-700' : 'bg-stone-100'} ${textMuted} hover:border-blue-500 border ${borderColor}`
                     }`}
                   >
                     {ai}
@@ -342,40 +343,38 @@ export default function Home() {
                   type="text"
                   value={customAiSource}
                   onChange={(e) => setCustomAiSource(e.target.value)}
-                  placeholder="Enter AI name"
+                  placeholder="Type the AI name..."
                   className={`w-full mt-3 p-3 ${bgCard} ${borderColor} border rounded-lg text-sm focus:border-blue-500 focus:outline-none`}
                 />
               )}
             </div>
 
-            {/* Quick Check Buttons */}
-            <div>
-              <label className={`block text-xs ${textMuted} mb-2 uppercase tracking-widest font-medium`}>
-                Quick prompts
+            {/* Step 2: Text Input */}
+            <div className={`p-4 ${bgCard} rounded-lg ${borderColor} border`}>
+              <label className={`block text-sm font-medium mb-3`}>
+                Step 2: Paste what the AI told you
               </label>
-              <div className="flex flex-wrap gap-2">
+              
+              {/* Quick Check Buttons */}
+              <div className="flex flex-wrap gap-2 mb-3">
                 {QUICK_CHECKS.map((prompt) => (
                   <button
                     key={prompt}
-                    onClick={() => setAiOutput(prompt + ": ")}
-                    className={`px-3 py-1.5 rounded text-xs ${bgCard} ${borderColor} border ${textMuted} hover:border-blue-500 hover:text-blue-400 transition-all`}
+                    onClick={() => setAiOutput(prompt + " ")}
+                    className={`px-3 py-1.5 rounded-full text-xs ${darkMode ? 'bg-gray-700' : 'bg-stone-100'} ${textMuted} hover:text-blue-400 transition-all`}
                   >
                     {prompt}
                   </button>
                 ))}
               </div>
-            </div>
 
-            {/* Text Input */}
-            <div>
-              <label className={`block text-xs ${textMuted} mb-2 uppercase tracking-widest font-medium`}>
-                Paste AI output to verify
-              </label>
               <textarea
                 value={aiOutput}
                 onChange={(e) => setAiOutput(e.target.value)}
-                placeholder="Paste the AI response you want to fact-check..."
-                className={`w-full h-40 p-4 ${bgCard} ${borderColor} border rounded-lg text-sm focus:border-blue-500 focus:outline-none resize-none`}
+                placeholder="Copy and paste what the AI said here...
+
+Example: 'The Great Wall of China is visible from space. It was built in 200 BC and is 13,000 miles long.'"
+                className={`w-full h-40 p-4 ${darkMode ? 'bg-gray-900' : 'bg-stone-100'} ${borderColor} border rounded-lg text-sm focus:border-blue-500 focus:outline-none resize-none`}
                 disabled={isVerifying}
               />
             </div>
@@ -384,7 +383,7 @@ export default function Home() {
             <button
               onClick={verifyContent}
               disabled={isVerifying || !aiOutput.trim() || !getEffectiveAiSource()}
-              className={`w-full py-4 rounded-lg text-sm uppercase tracking-widest font-semibold transition-all ${
+              className={`w-full py-4 rounded-lg text-lg font-semibold transition-all ${
                 isVerifying || !aiOutput.trim() || !getEffectiveAiSource()
                   ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
                   : 'bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-600/25'
@@ -392,33 +391,39 @@ export default function Home() {
             >
               {isVerifying ? (
                 <span className="flex items-center justify-center gap-3">
-                  {/* Fireball Spinner */}
-                  <span className="relative w-5 h-5">
+                  <span className="relative w-6 h-6">
                     <span className="absolute inset-0 rounded-full bg-orange-500 animate-ping opacity-75"></span>
-                    <span className="relative block w-5 h-5 rounded-full bg-gradient-to-tr from-yellow-400 via-orange-500 to-red-500 animate-spin"></span>
+                    <span className="relative block w-6 h-6 rounded-full bg-gradient-to-tr from-yellow-400 via-orange-500 to-red-500 animate-spin"></span>
                   </span>
                   {currentStep} ({elapsedTime}s)
                 </span>
               ) : (
-                'Verify Against Sources'
+                '🔍 Check If This Is True'
               )}
             </button>
+
+            {/* Help text when button is disabled */}
+            {(!aiOutput.trim() || !getEffectiveAiSource()) && !isVerifying && (
+              <p className={`text-center text-sm ${textMuted}`}>
+                {!getEffectiveAiSource() ? '👆 First, pick which AI said this' : '👆 Paste the AI response above'}
+              </p>
+            )}
 
             {/* Time Estimate */}
             {isVerifying && (
               <div className={`text-center text-sm ${textMuted}`}>
-                ⏱️ Usually takes 15-30 seconds • Checking {aiOutput.split('.').length - 1} potential claims
+                ⏱️ Usually takes 20-40 seconds
               </div>
             )}
 
             {/* Error Display */}
             {error && !result && (
               <div className={`p-4 ${bgCard} border border-red-500/50 rounded-lg text-red-400`}>
-                <p className="font-medium mb-1">ℹ️ {error}</p>
+                <p className="font-medium">⚠️ {error}</p>
               </div>
             )}
 
-            {/* Message Display (for opinions, etc) */}
+            {/* Message Display */}
             {result?.message && (
               <div className={`p-4 ${bgCard} border border-blue-500/50 rounded-lg text-blue-300`}>
                 <p>{result.message}</p>
@@ -428,23 +433,22 @@ export default function Home() {
             {/* Results Section */}
             {result && result.claims && result.claims.length > 0 && (
               <div className="space-y-6">
-                {/* Summary Bar */}
                 <div className={`p-5 ${bgCard} ${borderColor} border rounded-lg`}>
-                  <div className={`text-xs ${textMuted} uppercase tracking-widest mb-4 font-medium`}>
-                    Verification Summary • Completed in {elapsedTime}s
+                  <div className={`text-sm font-medium mb-4`}>
+                    ✅ Done! Here's what we found ({elapsedTime} seconds)
                   </div>
                   <div className="flex flex-wrap gap-6">
                     <div className="flex items-center gap-2">
                       <span className="text-emerald-400 font-bold text-2xl">{result.summary.supported}</span>
-                      <span className={textMuted}>Supported</span>
+                      <span className={textMuted}>True</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-red-400 font-bold text-2xl">{result.summary.contradicted}</span>
-                      <span className={textMuted}>Contradicted</span>
+                      <span className={textMuted}>False</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-amber-400 font-bold text-2xl">{result.summary.unverified}</span>
-                      <span className={textMuted}>Unverified</span>
+                      <span className={textMuted}>Can't Confirm</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <span className="text-blue-400 font-bold text-2xl">{result.summary.opinions}</span>
@@ -453,10 +457,9 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Individual Claims */}
                 <div className="space-y-4">
-                  <div className={`text-xs ${textMuted} uppercase tracking-widest font-medium`}>
-                    Claims Analyzed ({result.claims.length})
+                  <div className={`text-sm font-medium`}>
+                    📋 We checked {result.claims.length} claims:
                   </div>
                   
                   {result.claims.map((claim, index) => (
@@ -476,7 +479,7 @@ export default function Home() {
 
                       {claim.sources && claim.sources.length > 0 && (
                         <div className="ml-7 space-y-2">
-                          <div className={`text-xs ${textMuted} uppercase tracking-wide`}>Sources</div>
+                          <div className={`text-xs ${textMuted} uppercase tracking-wide`}>🔗 Proof (click to see)</div>
                           {claim.sources.map((source, srcIndex) => (
                             <div key={srcIndex} className={`p-3 rounded ${darkMode ? 'bg-gray-900' : 'bg-stone-100'}`}>
                               <a 
@@ -498,18 +501,23 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            {/* Disclaimer */}
+            <div className={`p-3 rounded-lg ${darkMode ? 'bg-gray-800/50' : 'bg-stone-100'} text-xs ${textMuted}`}>
+              <strong>Note:</strong> Trustie helps you check facts, but we're not perfect. Always double-check important information yourself. This is not legal, medical, or financial advice.
+            </div>
           </main>
         )}
 
         {/* Feedback Tab */}
         {activeTab === 'feedback' && (
           <div className={`p-6 ${bgCard} ${borderColor} border rounded-lg space-y-4`}>
-            <h2 className="text-xl font-bold">Share Your Feedback</h2>
-            <p className={textMuted}>Help us improve Trustie! Tell us what you think, report bugs, or suggest features.</p>
+            <h2 className="text-xl font-bold">💬 Tell Us What You Think</h2>
+            <p className={textMuted}>Found a bug? Have an idea? We'd love to hear from you!</p>
             <textarea
               value={feedback}
               onChange={(e) => setFeedback(e.target.value)}
-              placeholder="Your feedback..."
+              placeholder="Type your feedback here..."
               className={`w-full h-32 p-4 ${darkMode ? 'bg-gray-900' : 'bg-stone-100'} ${borderColor} border rounded-lg text-sm focus:border-blue-500 focus:outline-none resize-none`}
             />
             <button
@@ -521,33 +529,52 @@ export default function Home() {
                   : 'bg-gray-700 text-gray-500 cursor-not-allowed'
               }`}
             >
-              Submit Feedback
+              Send Feedback
             </button>
             {feedbackSubmitted && (
-              <p className="text-emerald-400">✓ Thank you for your feedback!</p>
+              <p className="text-emerald-400">✓ Thanks! We got your feedback.</p>
             )}
           </div>
         )}
 
         {/* About Tab */}
         {activeTab === 'about' && (
-          <div className={`p-6 ${bgCard} ${borderColor} border rounded-lg space-y-4`}>
-            <h2 className="text-xl font-bold">About Trustie</h2>
-            <p className={textMuted}>
-              Trustie is an AI fact-checking tool that helps you verify claims made by AI assistants like ChatGPT, Claude, Gemini, and others.
-            </p>
-            <h3 className="text-lg font-semibold mt-4">How it works:</h3>
-            <ol className={`list-decimal list-inside space-y-2 ${textMuted}`}>
-              <li>Select which AI generated the text</li>
-              <li>Paste the AI output you want to verify</li>
-              <li>We analyze and extract factual claims</li>
-              <li>Each claim is searched against real sources</li>
-              <li>You see what's supported, contradicted, or unverified</li>
-            </ol>
-            <h3 className="text-lg font-semibold mt-4">Why use Trustie?</h3>
-            <p className={textMuted}>
-              AI can sound confident even when it's wrong. Trustie gives you real sources so you can verify for yourself — not just another AI opinion.
-            </p>
+          <div className={`p-6 ${bgCard} ${borderColor} border rounded-lg space-y-6`}>
+            <h2 className="text-xl font-bold">❓ How Does Trustie Work?</h2>
+            
+            <div className="space-y-4">
+              <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-900' : 'bg-stone-100'}`}>
+                <p className="font-medium mb-2">1️⃣ You paste what an AI told you</p>
+                <p className={`text-sm ${textMuted}`}>Copy the response from ChatGPT, Claude, or any AI and paste it here.</p>
+              </div>
+              
+              <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-900' : 'bg-stone-100'}`}>
+                <p className="font-medium mb-2">2️⃣ We find the facts</p>
+                <p className={`text-sm ${textMuted}`}>Our system reads the text and picks out things that can be checked (like dates, numbers, events).</p>
+              </div>
+              
+              <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-900' : 'bg-stone-100'}`}>
+                <p className="font-medium mb-2">3️⃣ We search real websites</p>
+                <p className={`text-sm ${textMuted}`}>We check Wikipedia, news sites, and other trusted sources to see if the facts are true.</p>
+              </div>
+              
+              <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-900' : 'bg-stone-100'}`}>
+                <p className="font-medium mb-2">4️⃣ You see the results</p>
+                <p className={`text-sm ${textMuted}`}>We show you what's true ✓, what's false ✗, and what we couldn't confirm ?</p>
+              </div>
+            </div>
+
+            <div className="pt-4">
+              <h3 className="font-bold mb-2">🤔 Why use Trustie?</h3>
+              <p className={textMuted}>
+                AI chatbots sound confident even when they're wrong. They make up facts, dates, and statistics. 
+                Trustie helps you check if what they told you is actually true — with real sources you can click and read yourself.
+              </p>
+            </div>
+
+            <div className={`p-4 rounded-lg ${darkMode ? 'bg-gray-900' : 'bg-stone-100'} text-xs ${textMuted}`}>
+              <strong>Disclaimer:</strong> Trustie is for informational and educational purposes only. We do not provide legal, medical, financial, or professional advice. Always consult qualified professionals for important decisions. We're not responsible for actions taken based on information from this tool.
+            </div>
           </div>
         )}
 
@@ -555,14 +582,14 @@ export default function Home() {
         {showEmailPrompt && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className={`${bgCard} rounded-xl p-6 max-w-md w-full space-y-4`}>
-              <h3 className="text-xl font-bold">🎉 You're getting value from Trustie!</h3>
+              <h3 className="text-xl font-bold">🎉 You're finding Trustie useful!</h3>
               <p className={textMuted}>
-                Get the most out of Trustie — we'll send you:
+                Want to get even more? Join our email list:
               </p>
               <ul className={`text-sm ${textMuted} space-y-1`}>
-                <li>✓ Weekly AI reliability reports</li>
-                <li>✓ Tips for spotting AI misinformation</li>
-                <li>✓ Early access to new features</li>
+                <li>✓ Learn which AIs are most accurate</li>
+                <li>✓ Tips to spot AI mistakes</li>
+                <li>✓ New features before anyone else</li>
               </ul>
               <input
                 type="email"
@@ -576,13 +603,13 @@ export default function Home() {
                   onClick={handleEmailSubmit}
                   className="flex-1 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700"
                 >
-                  Subscribe
+                  Yes, Sign Me Up
                 </button>
                 <button
                   onClick={() => setShowEmailPrompt(false)}
                   className={`flex-1 py-2 ${bgCard} ${borderColor} border rounded-lg font-medium ${textMuted}`}
                 >
-                  Maybe later
+                  No Thanks
                 </button>
               </div>
             </div>
@@ -592,10 +619,10 @@ export default function Home() {
         {/* Footer */}
         <footer className={`mt-12 pt-6 border-t ${borderColor} text-center`}>
           <p className={`text-sm ${textMuted}`}>
-            Trustie — Verify AI claims against real sources
+            Trustie — Check if AI is telling the truth
           </p>
           <p className={`text-xs ${textMuted} mt-1`}>
-            Built with transparency in mind • Not affiliated with any AI company
+            For informational purposes only • Not professional advice
           </p>
         </footer>
       </div>
