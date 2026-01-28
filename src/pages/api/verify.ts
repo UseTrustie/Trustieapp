@@ -1,4 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
+import Anthropic from '@anthropic-ai/sdk'
+
+const client = new Anthropic()
 
 interface SourceResult {
   url: string
@@ -24,112 +27,227 @@ interface VerificationResult {
     unverified: number
     opinions: number
   }
+  message?: string
 }
 
-async function extractClaims(content: string, apiKey: string) {
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: `Extract factual claims from this text. Return JSON array only:
-[{"claim": "exact claim", "type": "fact", "searchQuery": "search query"}]
+// In-memory rankings storage
+const aiRankings: Record<string, { supported: number; contradicted: number; unverified: number; total: number }> = {}
 
-Text: "${content}"
+// Comprehensive text cleaning function
+function cleanText(text: string): string {
+  if (!text || typeof text !== 'string') return ''
+  
+  return text
+    .replace(/[₿€£¥₹₽₩฿]/g, '')
+    .replace(/[•◦●○■□▪▫▸▹►▻◆◇★☆✓✔✗✘✦✧]/g, '-')
+    .replace(/[–—―‐‑‒]/g, '-')
+    .replace(/[\u2018\u2019\u201A\u201B`´]/g, "'")
+    .replace(/[\u201C\u201D\u201E\u201F„"«»]/g, '"')
+    .replace(/[\u2026]/g, '...')
+    .replace(/[\u00A0\u2000-\u200B\u202F\u205F\u3000]/g, ' ')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/[\u{1F300}-\u{1F9FF}]/gu, '')
+    .replace(/[§¶†‡©®™°±²³µ¼½¾]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
 
-If no factual claims, return: []`
-        }]
-      })
-    })
-    const data = await response.json()
-    if (!data.content || !data.content[0] || !data.content[0].text) {
-      return []
+// Known myths for instant detection
+const KNOWN_MYTHS = [
+  { pattern: /napoleon.*(short|5'2"|5 foot 2|152 cm)/i, truth: 'Napoleon was actually average height (5\'6"-5\'7" or 168-170cm). The "short" myth came from British propaganda and confusion between French and English inches.' },
+  { pattern: /humans.*(only|just).*(10|ten)\s*(%|percent).*brain/i, truth: 'This is a complete myth. Humans use virtually all of their brain, and brain scans show activity throughout.' },
+  { pattern: /goldfish.*(3|three|short)\s*(second|sec).*memory/i, truth: 'Goldfish actually have memories lasting weeks, months, or even years. This is a myth.' },
+  { pattern: /great\s*wall.*china.*(visible|see|seen).*space/i, truth: 'The Great Wall is NOT visible from space with the naked eye. This is a common myth.' },
+  { pattern: /einstein.*(failed|flunked).*math/i, truth: 'Einstein did NOT fail math. He excelled at mathematics from a young age.' },
+  { pattern: /vikings.*(horned|horn).*helmets/i, truth: 'Vikings did NOT wear horned helmets. This is a 19th-century myth.' },
+  { pattern: /lightning.*(never|doesn't).*strike.*(twice|same)/i, truth: 'Lightning CAN and DOES strike the same place twice. Tall buildings are struck repeatedly.' },
+  { pattern: /cracking.*(knuckles|joints).*arthritis/i, truth: 'Cracking knuckles does NOT cause arthritis. Studies have found no connection.' },
+  { pattern: /sugar.*(hyper|hyperactive).*children/i, truth: 'Sugar does NOT cause hyperactivity in children. Multiple studies have debunked this myth.' },
+  { pattern: /shaving.*(thicker|faster|darker).*hair/i, truth: 'Shaving does NOT make hair grow back thicker or darker. This is a myth.' },
+]
+
+function checkKnownMyths(claim: string): { isMyth: boolean, explanation: string } | null {
+  for (const myth of KNOWN_MYTHS) {
+    if (myth.pattern.test(claim)) {
+      return { isMyth: true, explanation: myth.truth }
     }
-    const text = data.content[0].text.trim()
-    const match = text.match(/\[[\s\S]*\]/)
-    return match ? JSON.parse(match[0]) : []
-  } catch (err) {
-    console.error('Extract claims error:', err)
+  }
+  return null
+}
+
+async function extractClaims(content: string): Promise<Array<{claim: string, type: string}>> {
+  const cleanContent = cleanText(content)
+  
+  if (cleanContent.length < 20) {
+    return []
+  }
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [
+        {
+          role: 'user',
+          content: `Extract factual claims from this text. Only extract specific, verifiable facts.
+
+CLASSIFICATION:
+- "fact" = Specific verifiable information (dates, numbers, names, events)
+- "opinion" = Subjective belief or value judgment
+- "prediction" = Statement about the future
+
+Text to analyze:
+"${cleanContent.slice(0, 4000)}"
+
+Return ONLY a valid JSON array:
+[{"claim": "exact claim", "type": "fact|opinion|prediction"}]
+
+If no claims found, return: []`
+        }
+      ]
+    })
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const jsonMatch = text.match(/\[[\s\S]*?\]/)
+    if (!jsonMatch) return []
+    
+    const parsed = JSON.parse(jsonMatch[0])
+    return Array.isArray(parsed) ? parsed.slice(0, 10) : []
+  } catch (error) {
+    console.error('Claim extraction error:', error)
     return []
   }
 }
 
-async function searchSources(query: string, apiKey: string): Promise<SourceResult[]> {
-  try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1500,
-        tools: [{ type: 'web_search_20250305', name: 'web_search' }],
-        messages: [{
-          role: 'user',
-          content: `Search for: "${query}". Return top 2-3 credible sources as JSON:
-[{"url": "url", "title": "title", "snippet": "relevant text", "domain": "domain"}]`
-        }]
-      })
-    })
-    const data = await response.json()
-    if (!data.content) return []
-    let text = ''
-    for (const block of data.content) {
-      if (block.type === 'text') text += block.text
+async function searchAndVerify(claim: string): Promise<{sources: SourceResult[], status: string, explanation: string}> {
+  // First check known myths
+  const mythCheck = checkKnownMyths(claim)
+  if (mythCheck) {
+    return {
+      sources: [],
+      status: 'contradicted',
+      explanation: mythCheck.explanation
     }
-    if (!text) return []
-    const match = text.match(/\[[\s\S]*\]/)
-    return match ? JSON.parse(match[0]).slice(0, 3) : []
-  } catch (err) {
-    console.error('Search error:', err)
-    return []
+  }
+
+  try {
+    const response = await client.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      tools: [
+        {
+          type: 'web_search' as const,
+          name: 'web_search',
+          max_uses: 3
+        }
+      ],
+      messages: [
+        {
+          role: 'user',
+          content: `Search the web to verify if this claim is TRUE or FALSE:
+
+CLAIM: "${claim}"
+
+IMPORTANT:
+1. Search authoritative sources (Wikipedia, news, official sites)
+2. Check specific numbers, dates, measurements
+3. Be aware of common myths that sound true but are false
+
+After research, respond with ONLY this JSON:
+{
+  "status": "supported|contradicted|unverified",
+  "explanation": "Brief explanation (2-3 sentences)",
+  "sources": [
+    {"url": "url", "title": "title", "snippet": "quote", "domain": "domain.com"}
+  ]
+}
+
+STATUS:
+- "supported" = Evidence confirms claim is ACCURATE
+- "contradicted" = Evidence shows claim is WRONG
+- "unverified" = Not enough evidence
+
+Return ONLY valid JSON.`
+        }
+      ]
+    })
+
+    let sources: SourceResult[] = []
+    let status = 'unverified'
+    let explanation = 'Could not find enough reliable sources.'
+
+    for (const block of response.content) {
+      if (block.type === 'text') {
+        try {
+          const jsonMatch = block.text.match(/\{[\s\S]*\}/)
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0])
+            
+            if (parsed.status && ['supported', 'contradicted', 'unverified'].includes(parsed.status)) {
+              status = parsed.status
+            }
+            
+            if (parsed.explanation) {
+              explanation = parsed.explanation
+            }
+            
+            if (Array.isArray(parsed.sources)) {
+              sources = parsed.sources
+                .filter((s: any) => s && (s.url || s.title))
+                .slice(0, 3)
+                .map((s: any) => ({
+                  url: s.url || '#',
+                  title: s.title || 'Source',
+                  snippet: s.snippet || '',
+                  domain: s.domain || 'unknown'
+                }))
+            }
+          }
+        } catch (e) {
+          console.error('JSON parse error:', e)
+        }
+      }
+    }
+
+    return { sources, status, explanation }
+  } catch (error) {
+    console.error('Search error:', error)
+    return {
+      sources: [],
+      status: 'unverified',
+      explanation: 'Could not search for sources.'
+    }
   }
 }
 
-async function evaluateClaim(claim: string, sources: SourceResult[], apiKey: string) {
-  if (sources.length === 0) {
-    return { status: 'unverified', explanation: 'No relevant sources found.' }
+function updateRankings(aiSource: string, results: ClaimResult[]) {
+  if (!aiRankings[aiSource]) {
+    aiRankings[aiSource] = { supported: 0, contradicted: 0, unverified: 0, total: 0 }
   }
-  try {
-    const sourcesText = sources.map((s, i) => `Source ${i + 1}: ${s.snippet}`).join('\n')
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
-        messages: [{
-          role: 'user',
-          content: `Claim: "${claim}"\n\nSources:\n${sourcesText}\n\nReturn JSON: {"status": "supported|contradicted|unverified", "explanation": "brief reason"}`
-        }]
-      })
-    })
-    const data = await response.json()
-    if (!data.content || !data.content[0] || !data.content[0].text) {
-      return { status: 'unverified', explanation: 'Could not evaluate.' }
-    }
-    const text = data.content[0].text.trim()
-    const match = text.match(/\{[\s\S]*\}/)
-    return match ? JSON.parse(match[0]) : { status: 'unverified', explanation: 'Could not evaluate.' }
-  } catch (err) {
-    console.error('Evaluate error:', err)
-    return { status: 'unverified', explanation: 'Could not evaluate.' }
+  
+  for (const result of results) {
+    if (result.type !== 'fact') continue
+    
+    if (result.status === 'supported') aiRankings[aiSource].supported++
+    else if (result.status === 'contradicted') aiRankings[aiSource].contradicted++
+    else if (result.status === 'unverified') aiRankings[aiSource].unverified++
+    aiRankings[aiSource].total++
   }
+}
+
+export function getRankings() {
+  return Object.entries(aiRankings)
+    .filter(([_, stats]) => stats.total > 0)
+    .map(([name, stats]) => ({
+      name,
+      checksCount: stats.total,
+      supportedRate: stats.total > 0 ? Math.round((stats.supported / stats.total) * 100) : 0,
+      contradictedRate: stats.total > 0 ? Math.round((stats.contradicted / stats.total) * 100) : 0,
+      avgScore: stats.total > 0 ? Math.round(((stats.supported - stats.contradicted) / stats.total) * 100) : 0
+    }))
+    .sort((a, b) => b.avgScore - a.avgScore)
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -137,52 +255,97 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(405).json({ error: 'Method not allowed' })
   }
 
-  const { content, aiSource } = req.body
-  if (!content) return res.status(400).json({ error: 'No content provided' })
-  if (!aiSource) return res.status(400).json({ error: 'No AI source specified' })
-
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return res.status(500).json({ error: 'API key not configured' })
-
   try {
-    const claims = await extractClaims(content, apiKey)
-    if (!claims || claims.length === 0) {
+    const { content, aiSource } = req.body
+
+    if (!content || typeof content !== 'string') {
+      return res.status(400).json({ error: 'Please paste some text to verify.' })
+    }
+
+    const cleanContent = cleanText(content)
+
+    if (cleanContent.length < 20) {
+      return res.status(400).json({ error: 'Please paste a longer text with complete sentences.' })
+    }
+
+    if (cleanContent.length > 15000) {
+      return res.status(400).json({ error: 'Text is too long. Please paste a shorter section.' })
+    }
+
+    if (!aiSource || typeof aiSource !== 'string') {
+      return res.status(400).json({ error: 'Please select which AI generated this text.' })
+    }
+
+    // Extract claims
+    const extractedClaims = await extractClaims(cleanContent)
+    
+    const factClaims = extractedClaims.filter(c => c.type === 'fact')
+    const opinionClaims = extractedClaims.filter(c => c.type === 'opinion' || c.type === 'prediction')
+
+    if (factClaims.length === 0 && opinionClaims.length === 0) {
       return res.status(200).json({
         claims: [],
-        summary: { total: 0, supported: 0, contradicted: 0, unverified: 0, opinions: 0 }
+        summary: { total: 0, supported: 0, contradicted: 0, unverified: 0, opinions: 0 },
+        message: "We couldn't find specific claims to verify. Try text with dates, numbers, or events."
       })
     }
 
-    const processed: ClaimResult[] = []
-    for (const c of claims.slice(0, 5)) {
-      if (c.type === 'opinion') {
-        processed.push({ claim: c.claim, type: 'opinion', status: 'opinion', sources: [], explanation: 'Opinion cannot be fact-checked.' })
-        continue
-      }
-      const sources = await searchSources(c.searchQuery, apiKey)
-      const evaluation = await evaluateClaim(c.claim, sources, apiKey)
-      processed.push({
+    if (factClaims.length === 0 && opinionClaims.length > 0) {
+      const opinionResults: ClaimResult[] = opinionClaims.map(c => ({
         claim: c.claim,
-        type: c.type || 'fact',
-        status: evaluation.status || 'unverified',
-        sources,
-        explanation: evaluation.explanation || 'Could not verify.'
+        type: 'opinion' as const,
+        status: 'opinion' as const,
+        sources: [],
+        explanation: 'This is an opinion, not a verifiable fact.'
+      }))
+
+      return res.status(200).json({
+        claims: opinionResults,
+        summary: { total: opinionClaims.length, supported: 0, contradicted: 0, unverified: 0, opinions: opinionClaims.length },
+        message: "This text contains opinions rather than verifiable facts."
       })
     }
+
+    // Verify each fact claim
+    const results: ClaimResult[] = []
+
+    for (const claim of factClaims) {
+      const verification = await searchAndVerify(claim.claim)
+      results.push({
+        claim: claim.claim,
+        type: 'fact',
+        status: verification.status as 'supported' | 'contradicted' | 'unverified',
+        sources: verification.sources,
+        explanation: verification.explanation
+      })
+    }
+
+    // Add opinions
+    for (const claim of opinionClaims) {
+      results.push({
+        claim: claim.claim,
+        type: claim.type as 'opinion' | 'prediction',
+        status: 'opinion',
+        sources: [],
+        explanation: 'This is an opinion, not a verifiable fact.'
+      })
+    }
+
+    // Update rankings
+    updateRankings(aiSource, results)
 
     const summary = {
-      total: processed.length,
-      supported: processed.filter(c => c.status === 'supported').length,
-      contradicted: processed.filter(c => c.status === 'contradicted').length,
-      unverified: processed.filter(c => c.status === 'unverified').length,
-      opinions: processed.filter(c => c.status === 'opinion').length
+      total: results.length,
+      supported: results.filter(r => r.status === 'supported').length,
+      contradicted: results.filter(r => r.status === 'contradicted').length,
+      unverified: results.filter(r => r.status === 'unverified').length,
+      opinions: results.filter(r => r.status === 'opinion').length
     }
 
-    return res.status(200).json({ claims: processed, summary })
+    return res.status(200).json({ claims: results, summary })
+
   } catch (error: any) {
-    console.error('Handler error:', error)
-    return res.status(500).json({ error: error.message || 'Verification failed' })
+    console.error('Verification error:', error)
+    return res.status(500).json({ error: 'Something went wrong. Please try again.' })
   }
 }
-
-export const config = { api: { responseLimit: false } }
