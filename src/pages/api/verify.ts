@@ -30,10 +30,8 @@ interface VerificationResult {
   message?: string
 }
 
-// In-memory rankings storage
 const aiRankings: Record<string, { supported: number; contradicted: number; unverified: number; total: number }> = {}
 
-// Comprehensive text cleaning function
 function cleanText(text: string): string {
   if (!text || typeof text !== 'string') return ''
   
@@ -54,7 +52,6 @@ function cleanText(text: string): string {
     .trim()
 }
 
-// Known myths for instant detection
 const KNOWN_MYTHS = [
   { pattern: /napoleon.*(short|5'2"|5 foot 2|152 cm)/i, truth: 'Napoleon was actually average height (5\'6"-5\'7" or 168-170cm). The "short" myth came from British propaganda and confusion between French and English inches.' },
   { pattern: /humans.*(only|just).*(10|ten)\s*(%|percent).*brain/i, truth: 'This is a complete myth. Humans use virtually all of their brain, and brain scans show activity throughout.' },
@@ -122,7 +119,6 @@ If no claims found, return: []`
 }
 
 async function searchAndVerify(claim: string): Promise<{sources: SourceResult[], status: string, explanation: string}> {
-  // First check known myths
   const mythCheck = checkKnownMyths(claim)
   if (mythCheck) {
     return {
@@ -138,9 +134,8 @@ async function searchAndVerify(claim: string): Promise<{sources: SourceResult[],
       max_tokens: 2000,
       tools: [
         {
-          type: 'web_search' as const,
-          name: 'web_search',
-          max_uses: 3
+          type: 'web_search_20250305',
+          name: 'web_search'
         }
       ],
       messages: [
@@ -276,7 +271,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Please select which AI generated this text.' })
     }
 
-    // Extract claims
     const extractedClaims = await extractClaims(cleanContent)
     
     const factClaims = extractedClaims.filter(c => c.type === 'fact')
@@ -306,7 +300,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
-    // Verify each fact claim
     const results: ClaimResult[] = []
 
     for (const claim of factClaims) {
@@ -320,7 +313,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
-    // Add opinions
     for (const claim of opinionClaims) {
       results.push({
         claim: claim.claim,
@@ -331,7 +323,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
-    // Update rankings
     updateRankings(aiSource, results)
 
     const summary = {
