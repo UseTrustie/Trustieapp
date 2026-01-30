@@ -1,7 +1,4 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
-import Anthropic from '@anthropic-ai/sdk'
-
-const client = new Anthropic()
 
 interface SourceResult {
   url: string
@@ -16,18 +13,6 @@ interface ClaimResult {
   status: 'supported' | 'contradicted' | 'unverified' | 'opinion'
   sources: SourceResult[]
   explanation: string
-}
-
-interface VerificationResult {
-  claims: ClaimResult[]
-  summary: {
-    total: number
-    supported: number
-    contradicted: number
-    unverified: number
-    opinions: number
-  }
-  message?: string
 }
 
 const aiRankings: Record<string, { supported: number; contradicted: number; unverified: number; total: number }> = {}
@@ -59,10 +44,10 @@ const KNOWN_MYTHS = [
   { pattern: /great\s*wall.*china.*(visible|see|seen).*space/i, truth: 'The Great Wall is NOT visible from space with the naked eye. This is a common myth.' },
   { pattern: /einstein.*(failed|flunked).*math/i, truth: 'Einstein did NOT fail math. He excelled at mathematics from a young age.' },
   { pattern: /vikings.*(horned|horn).*helmets/i, truth: 'Vikings did NOT wear horned helmets. This is a 19th-century myth.' },
-  { pattern: /lightning.*(never|doesn't).*strike.*(twice|same)/i, truth: 'Lightning CAN and DOES strike the same place twice. Tall buildings are struck repeatedly.' },
-  { pattern: /cracking.*(knuckles|joints).*arthritis/i, truth: 'Cracking knuckles does NOT cause arthritis. Studies have found no connection.' },
-  { pattern: /sugar.*(hyper|hyperactive).*children/i, truth: 'Sugar does NOT cause hyperactivity in children. Multiple studies have debunked this myth.' },
-  { pattern: /shaving.*(thicker|faster|darker).*hair/i, truth: 'Shaving does NOT make hair grow back thicker or darker. This is a myth.' },
+  { pattern: /lightning.*(never|doesn't).*strike.*(twice|same)/i, truth: 'Lightning CAN and DOES strike the same place twice.' },
+  { pattern: /cracking.*(knuckles|joints).*arthritis/i, truth: 'Cracking knuckles does NOT cause arthritis.' },
+  { pattern: /sugar.*(hyper|hyperactive).*children/i, truth: 'Sugar does NOT cause hyperactivity in children.' },
+  { pattern: /shaving.*(thicker|faster|darker).*hair/i, truth: 'Shaving does NOT make hair grow back thicker or darker.' },
 ]
 
 function checkKnownMyths(claim: string): { isMyth: boolean, explanation: string } | null {
@@ -74,6 +59,38 @@ function checkKnownMyths(claim: string): { isMyth: boolean, explanation: string 
   return null
 }
 
+async function callClaude(messages: any[], useWebSearch: boolean = false): Promise<any> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('API key not configured')
+
+  const body: any = {
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 2000,
+    messages
+  }
+
+  if (useWebSearch) {
+    body.tools = [{ type: 'web_search_20250305', name: 'web_search' }]
+  }
+
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify(body)
+  })
+
+  if (!response.ok) {
+    const error = await response.text()
+    throw new Error(`API error: ${error}`)
+  }
+
+  return response.json()
+}
+
 async function extractClaims(content: string): Promise<Array<{claim: string, type: string}>> {
   const cleanContent = cleanText(content)
   
@@ -82,13 +99,10 @@ async function extractClaims(content: string): Promise<Array<{claim: string, typ
   }
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      messages: [
-        {
-          role: 'user',
-          content: `Extract factual claims from this text. Only extract specific, verifiable facts.
+    const data = await callClaude([
+      {
+        role: 'user',
+        content: `Extract factual claims from this text. Only extract specific, verifiable facts.
 
 CLASSIFICATION:
 - "fact" = Specific verifiable information (dates, numbers, names, events)
@@ -102,11 +116,10 @@ Return ONLY a valid JSON array:
 [{"claim": "exact claim", "type": "fact|opinion|prediction"}]
 
 If no claims found, return: []`
-        }
-      ]
-    })
+      }
+    ])
 
-    const text = response.content[0].type === 'text' ? response.content[0].text : ''
+    const text = data.content?.[0]?.text || ''
     const jsonMatch = text.match(/\[[\s\S]*?\]/)
     if (!jsonMatch) return []
     
@@ -129,19 +142,10 @@ async function searchAndVerify(claim: string): Promise<{sources: SourceResult[],
   }
 
   try {
-    const response = await client.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
-      tools: [
-        {
-          type: 'web_search_20250305',
-          name: 'web_search'
-        }
-      ],
-      messages: [
-        {
-          role: 'user',
-          content: `Search the web to verify if this claim is TRUE or FALSE:
+    const data = await callClaude([
+      {
+        role: 'user',
+        content: `Search the web to verify if this claim is TRUE or FALSE:
 
 CLAIM: "${claim}"
 
@@ -165,15 +169,14 @@ STATUS:
 - "unverified" = Not enough evidence
 
 Return ONLY valid JSON.`
-        }
-      ]
-    })
+      }
+    ], true)
 
     let sources: SourceResult[] = []
     let status = 'unverified'
     let explanation = 'Could not find enough reliable sources.'
 
-    for (const block of response.content) {
+    for (const block of data.content || []) {
       if (block.type === 'text') {
         try {
           const jsonMatch = block.text.match(/\{[\s\S]*\}/)
