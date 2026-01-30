@@ -37,20 +37,20 @@ function cleanText(text: string): string {
     .trim()
 }
 
-const KNOWN_MYTHS = [
+const KNOWN_MYTHS: Array<{ pattern: RegExp; truth: string }> = [
   { pattern: /napoleon.*(short|5'2"|5 foot 2|152 cm)/i, truth: 'Napoleon was actually average height (5\'6"-5\'7" or 168-170cm). The "short" myth came from British propaganda and confusion between French and English inches.' },
   { pattern: /humans.*(only|just).*(10|ten)\s*(%|percent).*brain/i, truth: 'This is a complete myth. Humans use virtually all of their brain, and brain scans show activity throughout.' },
   { pattern: /goldfish.*(3|three|short)\s*(second|sec).*memory/i, truth: 'Goldfish actually have memories lasting weeks, months, or even years. This is a myth.' },
   { pattern: /great\s*wall.*china.*(visible|see|seen).*space/i, truth: 'The Great Wall is NOT visible from space with the naked eye. This is a common myth.' },
   { pattern: /einstein.*(failed|flunked).*math/i, truth: 'Einstein did NOT fail math. He excelled at mathematics from a young age.' },
   { pattern: /vikings.*(horned|horn).*helmets/i, truth: 'Vikings did NOT wear horned helmets. This is a 19th-century myth.' },
-  { pattern: /lightning.*(never|doesn't).*strike.*(twice|same)/i, truth: 'Lightning CAN and DOES strike the same place twice.' },
+  { pattern: /lightning.*(never|doesn.t).*strike.*(twice|same)/i, truth: 'Lightning CAN and DOES strike the same place twice.' },
   { pattern: /cracking.*(knuckles|joints).*arthritis/i, truth: 'Cracking knuckles does NOT cause arthritis.' },
   { pattern: /sugar.*(hyper|hyperactive).*children/i, truth: 'Sugar does NOT cause hyperactivity in children.' },
   { pattern: /shaving.*(thicker|faster|darker).*hair/i, truth: 'Shaving does NOT make hair grow back thicker or darker.' },
 ]
 
-function checkKnownMyths(claim: string): { isMyth: boolean, explanation: string } | null {
+function checkKnownMyths(claim: string): { isMyth: boolean; explanation: string } | null {
   for (const myth of KNOWN_MYTHS) {
     if (myth.pattern.test(claim)) {
       return { isMyth: true, explanation: myth.truth }
@@ -59,20 +59,7 @@ function checkKnownMyths(claim: string): { isMyth: boolean, explanation: string 
   return null
 }
 
-async function callClaude(messages: any[], useWebSearch: boolean = false): Promise<any> {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('API key not configured')
-
-  const body: any = {
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 2000,
-    messages
-  }
-
-  if (useWebSearch) {
-    body.tools = [{ type: 'web_search_20250305', name: 'web_search' }]
-  }
-
+async function callClaudeBasic(prompt: string, apiKey: string): Promise<string> {
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -80,18 +67,52 @@ async function callClaude(messages: any[], useWebSearch: boolean = false): Promi
       'x-api-key': apiKey,
       'anthropic-version': '2023-06-01'
     },
-    body: JSON.stringify(body)
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [{ role: 'user', content: prompt }]
+    })
   })
 
   if (!response.ok) {
-    const error = await response.text()
-    throw new Error(`API error: ${error}`)
+    throw new Error('API request failed')
   }
 
-  return response.json()
+  const data = await response.json()
+  return data.content?.[0]?.text || ''
 }
 
-async function extractClaims(content: string): Promise<Array<{claim: string, type: string}>> {
+async function callClaudeWithSearch(prompt: string, apiKey: string): Promise<string> {
+  const response = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01'
+    },
+    body: JSON.stringify({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      tools: [{ type: 'web_search_20250305', name: 'web_search' }],
+      messages: [{ role: 'user', content: prompt }]
+    })
+  })
+
+  if (!response.ok) {
+    throw new Error('API request failed')
+  }
+
+  const data = await response.json()
+  let result = ''
+  for (const block of data.content || []) {
+    if (block.type === 'text') {
+      result += block.text
+    }
+  }
+  return result
+}
+
+async function extractClaims(content: string, apiKey: string): Promise<Array<{claim: string; type: string}>> {
   const cleanContent = cleanText(content)
   
   if (cleanContent.length < 20) {
@@ -99,10 +120,7 @@ async function extractClaims(content: string): Promise<Array<{claim: string, typ
   }
 
   try {
-    const data = await callClaude([
-      {
-        role: 'user',
-        content: `Extract factual claims from this text. Only extract specific, verifiable facts.
+    const prompt = `Extract factual claims from this text. Only extract specific, verifiable facts.
 
 CLASSIFICATION:
 - "fact" = Specific verifiable information (dates, numbers, names, events)
@@ -116,10 +134,8 @@ Return ONLY a valid JSON array:
 [{"claim": "exact claim", "type": "fact|opinion|prediction"}]
 
 If no claims found, return: []`
-      }
-    ])
 
-    const text = data.content?.[0]?.text || ''
+    const text = await callClaudeBasic(prompt, apiKey)
     const jsonMatch = text.match(/\[[\s\S]*?\]/)
     if (!jsonMatch) return []
     
@@ -131,7 +147,7 @@ If no claims found, return: []`
   }
 }
 
-async function searchAndVerify(claim: string): Promise<{sources: SourceResult[], status: string, explanation: string}> {
+async function searchAndVerify(claim: string, apiKey: string): Promise<{sources: SourceResult[]; status: string; explanation: string}> {
   const mythCheck = checkKnownMyths(claim)
   if (mythCheck) {
     return {
@@ -142,10 +158,7 @@ async function searchAndVerify(claim: string): Promise<{sources: SourceResult[],
   }
 
   try {
-    const data = await callClaude([
-      {
-        role: 'user',
-        content: `Search the web to verify if this claim is TRUE or FALSE:
+    const prompt = `Search the web to verify if this claim is TRUE or FALSE:
 
 CLAIM: "${claim}"
 
@@ -169,43 +182,39 @@ STATUS:
 - "unverified" = Not enough evidence
 
 Return ONLY valid JSON.`
-      }
-    ], true)
 
+    const text = await callClaudeWithSearch(prompt, apiKey)
+    
     let sources: SourceResult[] = []
     let status = 'unverified'
     let explanation = 'Could not find enough reliable sources.'
 
-    for (const block of data.content || []) {
-      if (block.type === 'text') {
-        try {
-          const jsonMatch = block.text.match(/\{[\s\S]*\}/)
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0])
-            
-            if (parsed.status && ['supported', 'contradicted', 'unverified'].includes(parsed.status)) {
-              status = parsed.status
-            }
-            
-            if (parsed.explanation) {
-              explanation = parsed.explanation
-            }
-            
-            if (Array.isArray(parsed.sources)) {
-              sources = parsed.sources
-                .filter((s: any) => s && (s.url || s.title))
-                .slice(0, 3)
-                .map((s: any) => ({
-                  url: s.url || '#',
-                  title: s.title || 'Source',
-                  snippet: s.snippet || '',
-                  domain: s.domain || 'unknown'
-                }))
-            }
-          }
-        } catch (e) {
-          console.error('JSON parse error:', e)
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[0])
+        
+        if (parsed.status && ['supported', 'contradicted', 'unverified'].includes(parsed.status)) {
+          status = parsed.status
         }
+        
+        if (parsed.explanation) {
+          explanation = parsed.explanation
+        }
+        
+        if (Array.isArray(parsed.sources)) {
+          sources = parsed.sources
+            .filter((s: { url?: string; title?: string }) => s && (s.url || s.title))
+            .slice(0, 3)
+            .map((s: { url?: string; title?: string; snippet?: string; domain?: string }) => ({
+              url: s.url || '#',
+              title: s.title || 'Source',
+              snippet: s.snippet || '',
+              domain: s.domain || 'unknown'
+            }))
+        }
+      } catch (e) {
+        console.error('JSON parse error:', e)
       }
     }
 
@@ -220,7 +229,7 @@ Return ONLY valid JSON.`
   }
 }
 
-function updateRankings(aiSource: string, results: ClaimResult[]) {
+function updateRankings(aiSource: string, results: ClaimResult[]): void {
   if (!aiRankings[aiSource]) {
     aiRankings[aiSource] = { supported: 0, contradicted: 0, unverified: 0, total: 0 }
   }
@@ -235,9 +244,9 @@ function updateRankings(aiSource: string, results: ClaimResult[]) {
   }
 }
 
-export function getRankings() {
+export function getRankings(): Array<{name: string; checksCount: number; supportedRate: number; contradictedRate: number; avgScore: number}> {
   return Object.entries(aiRankings)
-    .filter(([_, stats]) => stats.total > 0)
+    .filter(([, stats]) => stats.total > 0)
     .map(([name, stats]) => ({
       name,
       checksCount: stats.total,
@@ -248,43 +257,55 @@ export function getRankings() {
     .sort((a, b) => b.avgScore - a.avgScore)
 }
 
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' })
+    res.status(405).json({ error: 'Method not allowed' })
+    return
+  }
+
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    res.status(500).json({ error: 'API key not configured' })
+    return
   }
 
   try {
     const { content, aiSource } = req.body
 
     if (!content || typeof content !== 'string') {
-      return res.status(400).json({ error: 'Please paste some text to verify.' })
+      res.status(400).json({ error: 'Please paste some text to verify.' })
+      return
     }
 
     const cleanContent = cleanText(content)
 
     if (cleanContent.length < 20) {
-      return res.status(400).json({ error: 'Please paste a longer text with complete sentences.' })
+      res.status(400).json({ error: 'Please paste a longer text with complete sentences.' })
+      return
     }
 
     if (cleanContent.length > 15000) {
-      return res.status(400).json({ error: 'Text is too long. Please paste a shorter section.' })
+      res.status(400).json({ error: 'Text is too long. Please paste a shorter section.' })
+      return
     }
 
     if (!aiSource || typeof aiSource !== 'string') {
-      return res.status(400).json({ error: 'Please select which AI generated this text.' })
+      res.status(400).json({ error: 'Please select which AI generated this text.' })
+      return
     }
 
-    const extractedClaims = await extractClaims(cleanContent)
+    const extractedClaims = await extractClaims(cleanContent, apiKey)
     
     const factClaims = extractedClaims.filter(c => c.type === 'fact')
     const opinionClaims = extractedClaims.filter(c => c.type === 'opinion' || c.type === 'prediction')
 
     if (factClaims.length === 0 && opinionClaims.length === 0) {
-      return res.status(200).json({
+      res.status(200).json({
         claims: [],
         summary: { total: 0, supported: 0, contradicted: 0, unverified: 0, opinions: 0 },
         message: "We couldn't find specific claims to verify. Try text with dates, numbers, or events."
       })
+      return
     }
 
     if (factClaims.length === 0 && opinionClaims.length > 0) {
@@ -296,17 +317,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         explanation: 'This is an opinion, not a verifiable fact.'
       }))
 
-      return res.status(200).json({
+      res.status(200).json({
         claims: opinionResults,
         summary: { total: opinionClaims.length, supported: 0, contradicted: 0, unverified: 0, opinions: opinionClaims.length },
         message: "This text contains opinions rather than verifiable facts."
       })
+      return
     }
 
     const results: ClaimResult[] = []
 
     for (const claim of factClaims) {
-      const verification = await searchAndVerify(claim.claim)
+      const verification = await searchAndVerify(claim.claim, apiKey)
       results.push({
         claim: claim.claim,
         type: 'fact',
@@ -336,10 +358,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       opinions: results.filter(r => r.status === 'opinion').length
     }
 
-    return res.status(200).json({ claims: results, summary })
+    res.status(200).json({ claims: results, summary })
 
-  } catch (error: any) {
+  } catch (error) {
     console.error('Verification error:', error)
-    return res.status(500).json({ error: 'Something went wrong. Please try again.' })
+    res.status(500).json({ error: 'Something went wrong. Please try again.' })
   }
 }
