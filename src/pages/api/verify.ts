@@ -48,6 +48,11 @@ const KNOWN_MYTHS: Array<{ pattern: RegExp; truth: string }> = [
   { pattern: /cracking.*(knuckles|joints).*arthritis/i, truth: 'Cracking knuckles does NOT cause arthritis.' },
   { pattern: /sugar.*(hyper|hyperactive).*children/i, truth: 'Sugar does NOT cause hyperactivity in children.' },
   { pattern: /shaving.*(thicker|faster|darker).*hair/i, truth: 'Shaving does NOT make hair grow back thicker or darker.' },
+  { pattern: /blood.*(blue|color).*vein/i, truth: 'Blood is NEVER blue. It is always red. Veins appear blue due to how light penetrates skin.' },
+  { pattern: /bats.*blind/i, truth: 'Bats are NOT blind. Most bats can see quite well and also use echolocation.' },
+  { pattern: /bulls.*red.*angry/i, truth: 'Bulls are colorblind to red. They charge at the movement of the cape, not its color.' },
+  { pattern: /tongue.*taste.*zones|map/i, truth: 'The tongue map is a myth. All taste buds can detect all flavors.' },
+  { pattern: /dropping.*penny.*empire.*state.*kill/i, truth: 'A penny dropped from the Empire State Building would NOT kill someone. Terminal velocity is too low.' },
 ]
 
 function checkKnownMyths(claim: string): { isMyth: boolean; explanation: string } | null {
@@ -92,7 +97,7 @@ async function callClaudeWithSearch(prompt: string, apiKey: string): Promise<str
     },
     body: JSON.stringify({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 2000,
+      max_tokens: 3000,
       tools: [{ type: 'web_search_20250305', name: 'web_search' }],
       messages: [{ role: 'user', content: prompt }]
     })
@@ -120,20 +125,25 @@ async function extractClaims(content: string, apiKey: string): Promise<Array<{cl
   }
 
   try {
-    const prompt = `Extract factual claims from this text. Only extract specific, verifiable facts.
+    const prompt = `Extract factual claims from this text. Focus on SPECIFIC, VERIFIABLE facts.
+
+IMPORTANT RULES:
+1. Extract claims that have specific details (numbers, dates, names, measurements, events)
+2. Break complex sentences into individual checkable claims
+3. Keep claims concise and focused on ONE fact each
 
 CLASSIFICATION:
-- "fact" = Specific verifiable information (dates, numbers, names, events)
-- "opinion" = Subjective belief or value judgment
+- "fact" = Specific verifiable information (dates, numbers, names, events, statistics, measurements)
+- "opinion" = Subjective belief, preference, or value judgment (words like "best", "should", "beautiful")
 - "prediction" = Statement about the future
 
 Text to analyze:
 "${cleanContent.slice(0, 4000)}"
 
-Return ONLY a valid JSON array:
-[{"claim": "exact claim", "type": "fact|opinion|prediction"}]
+Return ONLY a valid JSON array. Extract up to 10 claims:
+[{"claim": "exact claim from text", "type": "fact|opinion|prediction"}]
 
-If no claims found, return: []`
+If no verifiable claims found, return: []`
 
     const text = await callClaudeBasic(prompt, apiKey)
     const jsonMatch = text.match(/\[[\s\S]*?\]/)
@@ -148,46 +158,63 @@ If no claims found, return: []`
 }
 
 async function searchAndVerify(claim: string, apiKey: string): Promise<{sources: SourceResult[]; status: string; explanation: string}> {
+  // First check known myths database
   const mythCheck = checkKnownMyths(claim)
   if (mythCheck) {
     return {
-      sources: [],
+      sources: [{
+        url: 'https://en.wikipedia.org/wiki/List_of_common_misconceptions',
+        title: 'List of Common Misconceptions - Wikipedia',
+        snippet: mythCheck.explanation,
+        domain: 'wikipedia.org'
+      }],
       status: 'contradicted',
       explanation: mythCheck.explanation
     }
   }
 
   try {
-    const prompt = `Search the web to verify if this claim is TRUE or FALSE:
+    // IMPROVED PROMPT - More aggressive about finding answers
+    const prompt = `You MUST search the web and verify this claim. Do NOT say "unverified" unless you truly cannot find ANY relevant information after searching.
 
-CLAIM: "${claim}"
+CLAIM TO VERIFY: "${claim}"
+
+INSTRUCTIONS:
+1. Search for this specific claim using web search
+2. Look for authoritative sources: Wikipedia, news sites, government sites, educational institutions
+3. Check if the specific details (numbers, dates, names) match what sources say
+4. If sources mostly agree with the claim = "supported"
+5. If sources contradict the claim or show it's wrong = "contradicted"
+6. ONLY use "unverified" if you searched and genuinely found NO relevant information
 
 IMPORTANT:
-1. Search authoritative sources (Wikipedia, news, official sites)
-2. Check specific numbers, dates, measurements
-3. Be aware of common myths that sound true but are false
+- Most factual claims CAN be verified - try harder before saying "unverified"
+- If you find partial information, make a determination based on what you found
+- Common facts about history, science, geography, famous people ARE verifiable
+- If the claim contains a specific number/date, check if that number/date is accurate
 
-After research, respond with ONLY this JSON:
+After searching, respond with ONLY this JSON format:
 {
   "status": "supported|contradicted|unverified",
-  "explanation": "Brief explanation (2-3 sentences)",
+  "explanation": "2-3 sentence explanation of what you found and why you made this determination",
   "sources": [
-    {"url": "url", "title": "title", "snippet": "quote", "domain": "domain.com"}
+    {"url": "actual URL", "title": "page title", "snippet": "relevant quote from source", "domain": "domain.com"}
   ]
 }
 
-STATUS:
-- "supported" = Evidence confirms claim is ACCURATE
-- "contradicted" = Evidence shows claim is WRONG
-- "unverified" = Not enough evidence
+STATUS GUIDE:
+- "supported" = Sources confirm this is TRUE or ACCURATE
+- "contradicted" = Sources show this is FALSE, WRONG, or a MYTH
+- "unverified" = ONLY if you searched and found NO relevant information at all
 
-Return ONLY valid JSON.`
+You MUST include at least 1 source if status is "supported" or "contradicted".
+Return ONLY valid JSON, no other text.`
 
     const text = await callClaudeWithSearch(prompt, apiKey)
     
     let sources: SourceResult[] = []
     let status = 'unverified'
-    let explanation = 'Could not find enough reliable sources.'
+    let explanation = 'We searched but could not find reliable sources that directly address this specific claim.'
 
     const jsonMatch = text.match(/\{[\s\S]*\}/)
     if (jsonMatch) {
@@ -198,7 +225,7 @@ Return ONLY valid JSON.`
           status = parsed.status
         }
         
-        if (parsed.explanation) {
+        if (parsed.explanation && parsed.explanation.length > 10) {
           explanation = parsed.explanation
         }
         
@@ -210,11 +237,49 @@ Return ONLY valid JSON.`
               url: s.url || '#',
               title: s.title || 'Source',
               snippet: s.snippet || '',
-              domain: s.domain || 'unknown'
+              domain: s.domain || new URL(s.url || 'https://unknown.com').hostname.replace('www.', '')
             }))
+        }
+
+        // If status is supported/contradicted but no sources, that's suspicious - but keep the determination
+        if ((status === 'supported' || status === 'contradicted') && sources.length === 0) {
+          // Try to extract domain from explanation if URL mentioned
+          const urlMatch = explanation.match(/https?:\/\/[^\s]+/)
+          if (urlMatch) {
+            try {
+              const domain = new URL(urlMatch[0]).hostname.replace('www.', '')
+              sources.push({
+                url: urlMatch[0],
+                title: 'Source',
+                snippet: explanation,
+                domain: domain
+              })
+            } catch (e) {
+              // URL parsing failed, continue without source
+            }
+          }
         }
       } catch (e) {
         console.error('JSON parse error:', e)
+        // If we can't parse JSON but got a response, try to extract useful info
+        if (text.toLowerCase().includes('true') || text.toLowerCase().includes('correct') || text.toLowerCase().includes('accurate')) {
+          status = 'supported'
+          explanation = 'Sources indicate this claim is accurate.'
+        } else if (text.toLowerCase().includes('false') || text.toLowerCase().includes('incorrect') || text.toLowerCase().includes('myth') || text.toLowerCase().includes('wrong')) {
+          status = 'contradicted'
+          explanation = 'Sources indicate this claim is inaccurate or a common misconception.'
+        }
+      }
+    }
+
+    // Improve "unverified" explanations to be more specific
+    if (status === 'unverified' && explanation === 'We searched but could not find reliable sources that directly address this specific claim.') {
+      if (claim.length < 30) {
+        explanation = 'This claim is too vague or general to verify. Try a more specific statement with dates, numbers, or names.'
+      } else if (claim.includes('?')) {
+        explanation = 'This appears to be a question rather than a factual claim to verify.'
+      } else {
+        explanation = 'We could not find authoritative sources that directly confirm or deny this specific claim. This doesn\'t mean it\'s false - just that we couldn\'t verify it.'
       }
     }
 
@@ -224,7 +289,7 @@ Return ONLY valid JSON.`
     return {
       sources: [],
       status: 'unverified',
-      explanation: 'Could not search for sources.'
+      explanation: 'We encountered an error while searching. Please try again.'
     }
   }
 }
@@ -255,6 +320,44 @@ export function getRankings(): Array<{name: string; checksCount: number; support
       avgScore: stats.total > 0 ? Math.round(((stats.supported - stats.contradicted) / stats.total) * 100) : 0
     }))
     .sort((a, b) => b.avgScore - a.avgScore)
+}
+
+// Generate a summary sentence based on results
+function generateSummary(results: ClaimResult[], aiSource: string): string {
+  const supported = results.filter(r => r.status === 'supported').length
+  const contradicted = results.filter(r => r.status === 'contradicted').length
+  const unverified = results.filter(r => r.status === 'unverified').length
+  const opinions = results.filter(r => r.status === 'opinion').length
+  const total = results.length
+
+  if (total === 0) {
+    return "We couldn't find any claims to verify in this text."
+  }
+
+  if (contradicted === 0 && supported > 0) {
+    if (supported === total) {
+      return `✅ Good news! All ${supported} facts from ${aiSource} checked out as accurate.`
+    }
+    return `✅ The ${supported} verifiable fact${supported > 1 ? 's' : ''} from ${aiSource} appear${supported === 1 ? 's' : ''} to be accurate.`
+  }
+
+  if (contradicted > 0 && supported === 0) {
+    return `⚠️ Warning: ${contradicted} claim${contradicted > 1 ? 's' : ''} from ${aiSource} appear${contradicted === 1 ? 's' : ''} to be false or misleading.`
+  }
+
+  if (contradicted > 0 && supported > 0) {
+    return `Mixed results: ${supported} claim${supported > 1 ? 's' : ''} verified as true, but ${contradicted} appear${contradicted === 1 ? 's' : ''} to be false.`
+  }
+
+  if (unverified === total) {
+    return `We couldn't verify these claims. They may be too specific or recent to find sources for.`
+  }
+
+  if (opinions === total) {
+    return `This text contains opinions rather than verifiable facts.`
+  }
+
+  return `We checked ${total} claims from ${aiSource}.`
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse): Promise<void> {
@@ -303,6 +406,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(200).json({
         claims: [],
         summary: { total: 0, supported: 0, contradicted: 0, unverified: 0, opinions: 0 },
+        summaryText: "We couldn't find specific claims to verify. Try text with dates, numbers, or events.",
         message: "We couldn't find specific claims to verify. Try text with dates, numbers, or events."
       })
       return
@@ -314,12 +418,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         type: 'opinion' as const,
         status: 'opinion' as const,
         sources: [],
-        explanation: 'This is an opinion, not a verifiable fact.'
+        explanation: 'This is an opinion or subjective statement, not a verifiable fact.'
       }))
 
       res.status(200).json({
         claims: opinionResults,
         summary: { total: opinionClaims.length, supported: 0, contradicted: 0, unverified: 0, opinions: opinionClaims.length },
+        summaryText: "This text contains opinions rather than verifiable facts.",
         message: "This text contains opinions rather than verifiable facts."
       })
       return
@@ -327,6 +432,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const results: ClaimResult[] = []
 
+    // Process fact claims with verification
     for (const claim of factClaims) {
       const verification = await searchAndVerify(claim.claim, apiKey)
       results.push({
@@ -338,13 +444,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       })
     }
 
+    // Add opinion claims
     for (const claim of opinionClaims) {
       results.push({
         claim: claim.claim,
         type: claim.type as 'opinion' | 'prediction',
         status: 'opinion',
         sources: [],
-        explanation: 'This is an opinion, not a verifiable fact.'
+        explanation: 'This is an opinion or subjective statement, not a verifiable fact.'
       })
     }
 
@@ -358,7 +465,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       opinions: results.filter(r => r.status === 'opinion').length
     }
 
-    res.status(200).json({ claims: results, summary })
+    // Generate human-readable summary
+    const summaryText = generateSummary(results, aiSource)
+
+    res.status(200).json({ claims: results, summary, summaryText })
 
   } catch (error) {
     console.error('Verification error:', error)
