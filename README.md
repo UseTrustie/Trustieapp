@@ -1,105 +1,170 @@
-# Trust Check
+# Trustie - Verify AI Claims with Real Sources
 
-**Verify AI claims against real sources. See which AIs are most reliable.**
-
-## What It Does
-
-1. Select which AI generated the output (ChatGPT, Claude, Gemini, etc.)
-2. Paste the AI output
-3. Get each claim verified against real sources
-4. See: Supported, Contradicted, or Unverified — with actual links
-5. View rankings of which AIs are most reliable based on real user data
-
-**You see the evidence. You decide what to trust.**
+**No more blind trusting AI.** Paste what an AI told you. We find the facts.
 
 ## Features
 
-- **Claim Verification**: Extracts factual claims and searches for real sources
-- **AI Rankings**: See which AI tools are most/least reliable based on user verifications
-- **Source Links**: Every claim shows actual sources you can click and verify
-- **Data Collection**: Builds a database of AI reliability from real usage
+### 🔍 Search with Trust Scores
+- AI-powered search that prioritizes trusted sources
+- Trust scores (0-100%) based on source quality
+- Cross-reference indicator showing how many sources agree
+- Source quality badges (High Trust, Medium Trust, Verify Manually)
+- No filter bubbles - same results for everyone
+- Privacy-first - we do not track your searches
 
-## Why This Exists
+### ✓ Verify AI Output
+- Paste any AI response to fact-check it
+- Claims marked as: Verified Truth ✓, Proven False ✗, Unconfirmed ?, Opinion ○
+- Real source links you can click and verify yourself
+- Source quality indicators (.edu, .gov = high trust)
+- Cross-referencing shows how many sources agree
 
-AI sounds confident even when it's wrong. You need:
-1. A way to check claims against real sources
-2. Data on which AIs are more reliable for different tasks
+### 🏆 AI Truth Rankings
+- See which AI models are most accurate based on real user verifications
+- Rankings based on verified vs false claim percentages
+- Updated in real-time as users verify AI outputs
+
+### 💬 Ask Trustie
+- One-step convenience mode
+- Ask any question, get verified answers with sources
+
+### 📝 User Experience
+- Dark/Light/Auto mode
+- Loading facts while you wait
+- Copy results button
+- Mobile-friendly responsive design
+- Professional writing (no contractions)
+- Settings modal with customization options
+- Sign in/Sign up placeholders (coming soon)
+
+## Tech Stack
+
+- **Frontend:** Next.js 14, React 18, TypeScript, Tailwind CSS
+- **AI:** Claude API (Anthropic) with web search
+- **Hosting:** Vercel
+- **Future:** Supabase for persistent database, Clerk for auth
 
 ## Quick Start
 
-### 1. Get an Anthropic API Key
-
-Go to [console.anthropic.com](https://console.anthropic.com) and create an API key.
-
-### 2. Clone and install
+### 1. Clone or Download
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/trust-check.git
-cd trust-check
+git clone https://github.com/UseTrustie/Trustieapp.git
+cd Trustieapp
+```
+
+### 2. Install Dependencies
+
+```bash
 npm install
 ```
 
-### 3. Add your API key
+### 3. Set Up Environment
 
-```bash
-cp .env.example .env.local
+Create a `.env.local` file:
+
+```
+ANTHROPIC_API_KEY=your_api_key_here
 ```
 
-Edit `.env.local`:
-```
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-```
+Get your API key at: https://console.anthropic.com
 
-### 4. Run locally
+### 4. Run Locally
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open http://localhost:3000
 
-## Deploy to Vercel (Free)
+### 5. Deploy to Vercel
 
 1. Push to GitHub
-2. Go to [vercel.com/new](https://vercel.com/new)
-3. Import your repo
+2. Go to vercel.com/new
+3. Import your repository
 4. Add environment variable: `ANTHROPIC_API_KEY`
-5. Deploy
+5. Deploy!
 
-**Note**: The simple file-based storage works for testing. For production, add Supabase or another database for persistent rankings data.
+## File Structure
 
-## How Rankings Work
+```
+trustie/
+├── src/
+│   ├── app/
+│   │   ├── page.tsx        # Main UI component
+│   │   ├── layout.tsx      # Root layout
+│   │   └── globals.css     # Global styles
+│   └── pages/
+│       └── api/
+│           ├── search.ts   # Search API with trust scoring
+│           ├── verify.ts   # Verification API
+│           └── rankings.ts # AI rankings API
+├── package.json
+├── tailwind.config.js
+├── tsconfig.json
+├── next.config.js
+├── vercel.json
+└── README.md
+```
 
-Every time someone verifies an AI output:
-- The claim results are tracked (supported/contradicted/unverified)
-- This data builds per-AI reliability scores
-- Rankings show which AIs have the best track record
+## API Endpoints
 
-More verifications = more accurate rankings.
+### POST /api/search
+Search with trust scoring and cross-referencing.
 
-## Tech Stack
+```json
+{
+  "query": "your search query"
+}
+```
 
-- Next.js 14
-- Tailwind CSS
-- Anthropic Claude API (with web search)
-- Vercel (hosting)
+### POST /api/verify
+Verify AI output against real sources.
+
+```json
+{
+  "content": "AI text to verify",
+  "aiSource": "ChatGPT"
+}
+```
+
+### GET /api/rankings
+Get AI truth rankings based on user verifications.
+
+### POST /api/rankings
+Log a new verification result.
 
 ## Roadmap
 
+### Phase 1 (Current) ✅
+- [x] Core verification functionality
+- [x] Search with trust scores
+- [x] AI rankings
+- [x] Dark/Light mode
+- [x] Mobile responsive
+- [x] Settings modal
+- [x] Auth UI placeholders
+
+### Phase 2 (Next)
 - [ ] Persistent database (Supabase)
-- [ ] Rankings by category (coding, health, business, etc.)
-- [ ] Embed widget for other sites
+- [ ] User authentication (Clerk)
+- [ ] Save verification history
+- [ ] Stripe payments for premium
+
+### Phase 3 (Future)
+- [ ] Browser extension
+- [ ] Image/document scanning
 - [ ] API access for developers
-- [ ] Enterprise dashboard
+- [ ] Enterprise features
 
-## Cost
+## Contributing
 
-~$0.01-0.05 per verification depending on claim count.
+Feedback and contributions welcome! Open an issue or submit a PR.
 
 ## License
 
-MIT
+© 2025 Trustie. All rights reserved.
 
 ---
 
-Built because confidence isn't the same as correctness.
+**Built with ❤️ to make AI more trustworthy.**
