@@ -1,6 +1,5 @@
 import type { NextApiRequest, NextApiResponse } from 'next'
 
-// In-memory storage (will reset on redeploy - use Supabase for persistence later)
 let rankings: Record<string, {
   name: string
   checksCount: number
@@ -11,7 +10,6 @@ let rankings: Record<string, {
 }> = {}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // GET - Retrieve rankings
   if (req.method === 'GET') {
     const list = Object.values(rankings)
       .filter((ai) => ai.checksCount > 0)
@@ -19,8 +17,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const factualClaims = ai.verified + ai.false + ai.unconfirmed
         const verifiedRate = factualClaims > 0 ? Math.round((ai.verified / factualClaims) * 100) : 0
         const falseRate = factualClaims > 0 ? Math.round((ai.false / factualClaims) * 100) : 0
-        
-        // Score: verified percentage minus (false percentage * 2) to penalize false claims more
         const avgScore = verifiedRate - (falseRate * 2)
         
         return {
@@ -36,15 +32,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ rankings: list })
   }
 
-  // POST - Log new verification
   if (req.method === 'POST') {
-    const { aiSource, verified, false: falseCount, unconfirmed, opinions, total } = req.body
+    const { aiSource, verified, false: falseCount, unconfirmed, opinions } = req.body
     
     if (!aiSource) {
       return res.status(400).json({ error: 'AI source required' })
     }
 
-    // Initialize if new AI source
     if (!rankings[aiSource]) {
       rankings[aiSource] = {
         name: aiSource,
@@ -56,7 +50,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
     }
 
-    // Update counts
     rankings[aiSource].checksCount += 1
     rankings[aiSource].verified += verified || 0
     rankings[aiSource].false += falseCount || 0
