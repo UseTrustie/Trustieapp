@@ -23,7 +23,6 @@ body {
   min-height: 100vh;
 }
 
-/* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;
@@ -42,20 +41,11 @@ body {
   background: #6b7280;
 }
 
-/* Focus styles */
 *:focus-visible {
   outline: 2px solid #3b82f6;
   outline-offset: 2px;
 }
 
-/* Smooth transitions */
-* {
-  transition-property: background-color, border-color, color, fill, stroke;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-  transition-duration: 150ms;
-}
-
-/* Animation for loading spinner */
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -66,37 +56,6 @@ body {
   animation: spin 1s linear infinite;
 }
 
-/* Pulse animation for loading */
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
-}
-
-.animate-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
-
-/* Fade in animation */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.fade-in {
-  animation: fadeIn 0.3s ease-out;
-}
-
-/* Button hover effects */
 button {
   cursor: pointer;
 }
@@ -105,62 +64,28 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* Input placeholder styling */
 input::placeholder,
 textarea::placeholder {
   color: #9ca3af;
   opacity: 1;
 }
 
-/* Selection styling */
 ::selection {
   background-color: #3b82f6;
   color: white;
 }
 
-/* Mobile optimizations */
 @media (max-width: 640px) {
   html {
     font-size: 14px;
   }
-  
-  .max-w-4xl {
-    padding-left: 1rem;
-    padding-right: 1rem;
-  }
 }
 
-/* Prevent text selection on buttons */
 button {
   user-select: none;
   -webkit-user-select: none;
 }
 
-/* Smooth scroll */
 html {
   scroll-behavior: smooth;
-}
-
-/* Modal backdrop blur */
-.modal-backdrop {
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
-}
-
-/* Link styles */
-a {
-  text-decoration: none;
-}
-
-a:hover {
-  text-decoration: underline;
-}
-
-/* Card shadows */
-.card-shadow {
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-}
-
-.card-shadow-lg {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
 }
