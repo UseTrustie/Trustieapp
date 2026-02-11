@@ -1,13 +1,11 @@
 {
   "name": "trustie",
   "version": "1.0.0",
-  "description": "Verify AI Claims with Real Sources in Seconds",
   "private": true,
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start",
-    "lint": "next lint"
+    "start": "next start"
   },
   "dependencies": {
     "next": "14.0.4",
